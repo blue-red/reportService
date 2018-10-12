@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.cwn.wizbank.report.mapper.AeItemRelationMapper">
+
+    <select id="getChildClassList" resultType="java.lang.Long">
+        SELECT ire_child_itm_id
+        FROM aeItemRelation
+        <if test="aeItemIds != null">
+            WHERE ire_parent_itm_id IN
+            <foreach collection="aeItemIds" item="itemId" open="(" separator="," close=")" index="index">
+                #{itemId}
+            </foreach>
+        </if>
+    </select>
+</mapper>

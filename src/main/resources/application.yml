@@ -1,0 +1,23 @@
+spring:
+  jpa:
+    hibernate:
+        dialect: com.cwn.wizbank.report.repository.dialect.CustomPostgresDialect
+    database: postgresql
+mybatis-plus:
+  mapper-locations: classpath:/mapper/*Mapper.xml
+  typeAliasesPackage: com.cwn.wizbank.report.entity
+  global-config:
+    id-type: 0
+    field-strategy: 2
+    db-column-underline: true
+    refresh-mapper: true
+    sql-parser-cache: true
+  configuration:
+    map-underscore-to-camel-case: true
+    cache-enabled: false
+    return-instance-for-empty-row: true
+logging:
+  level:
+    root: info
+server:
+  port: 8999

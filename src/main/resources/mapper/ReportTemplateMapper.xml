@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.cwn.wizbank.report.mapper.ReportTemplateMapper">
+    <select id="getMyTemplatePage" resultType="java.util.Map">
+      select
+      ret_id templateId,
+      ret_subscribers subscribers,
+      ret_subscription_time subscriptionTime,
+      ret_template_name templateName,
+      rec_type templateType,
+      rec_create_time createTime,
+      rec_is_back isBack,
+      rec_update_time updateTime
+      from report_template,report_condition
+      WHERE ret_rec_id = rec_id
+    </select>
+</mapper>

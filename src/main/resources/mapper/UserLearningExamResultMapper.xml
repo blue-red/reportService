@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.cwn.wizbank.report.mapper.UserLearningExamResultMapper">
+
+    <select id="getUserLearningExamResult" resultType="java.util.Map">
+        select
+        app.app_ent_id userId,
+        item.itm_code itemCode,
+        item.itm_title itemName,
+        temp.className className,
+        temp.classCode classCode,
+        app.app_tkh_id tkhId,
+        res.res_id resId,
+        res.res_title examName,
+        res.res_subtype examType,
+        pgr.pgr_completion_status examStatus,
+        pgr.pgr_score examScore,
+        pgr.pgr_start_datetime examStartTime,
+        pgr.pgr_complete_datetime completeTime,
+        pgr.pgr_attempt_nbr attempt,
+        mod.mod_pass_score examPassScore,
+        mod.mod_max_score examFullScore
+        from aeApplication app
+
+        INNER JOIN aeItem item ON app.app_itm_id = item.itm_id
+        INNER JOIN Course cos ON item.itm_id = cos.cos_itm_id
+
+        INNER JOIN ResourceContent rcn on rcn.rcn_res_id = cos.cos_res_id
+        INNER JOIN Resources res on res.res_id = rcn.rcn_res_id_content and res.res_subtype in ('TST','DXT')
+        INNER JOIN Module mod on mod.mod_res_id = rcn.rcn_res_id_content
+        INNER JOIN Progress pgr on pgr.pgr_res_id = rcn.rcn_res_id_content and pgr.pgr_tkh_id = app.app_tkh_id
+        LEFT JOIN
+        (
+            SELECT
+            childItem.itm_id itemId,
+            parentItem.itm_title itemName,
+            parentItem.itm_code itemCode,
+            childItem.itm_title className,
+            childItem.itm_code classCode
+            FROM aeItem childItem, aeItemRelation, aeItem parentItem, Course course
+            WHERE
+            childItem.itm_id = course.cos_itm_id AND
+            childItem.itm_id = ire_child_itm_id AND
+            ire_parent_itm_id = parentItem.itm_id AND
+            childItem.itm_type = 'CLASSROOM'
+            AND childItem.itm_owner_ent_id = 1
+            AND childItem.itm_id NOT IN
+            (SELECT itm_id FROM aeItem WHERE itm_create_run_ind = 1 AND itm_content_def = 'CHILD')
+            <if test="aeItemIds != null and aeItemIds != ''">
+                AND ire_parent_itm_id IN <include refid="forEachItemIds"/>
+            </if>
+        ) temp ON app.app_itm_id = temp.itemId
+        WHERE  app.app_id IN (
+            SELECT MAX(app_id) FROM aeApplication, aeAttendance
+            WHERE att_app_id = app_id AND app_itm_id = app.app_itm_id GROUP BY app_ent_id
+        )
+        AND app.app_status = 'Admitted'
+        <if test="aeItemIds != null and aeItemIds != ''">
+            AND item.itm_id IN <include refid="forEachItemIds"/>
+        </if>
+        <if test="userIds != null and userIds != ''">
+            AND app.app_ent_id IN
+            <foreach collection="userIds" item="userId" open="(" separator="," close=")" index="index">
+                #{userId}
+            </foreach>
+        </if>
+        <if test="startDate != null and startDate != ''">
+            AND app.app_upd_timestamp &gt;= #{startDate}
+        </if>
+        <if test="endDate != null and endDate != ''">
+            AND app.app_upd_timestamp &lt;= #{endDate}
+        </if>
+    </select>
+
+    <select id="getExamInfoByExamIdAndAttemptAndTkhId" resultType="java.util.Map">
+        SELECT
+          atm_score score,
+          atm_max_score maxScore
+        FROM ProgressAttempt
+        WHERE atm_pgr_attempt_nbr = #{attempt}
+        AND atm_tkh_id = #{tkhId}
+        AND atm_pgr_res_id = #{resId}
+    </select>
+
+    <sql id="forEachItemIds">
+        <foreach collection="aeItemIds" index="index" open="(" separator="," close=")" item="itmId">
+            #{itmId}
+        </foreach>
+    </sql>
+
+</mapper>

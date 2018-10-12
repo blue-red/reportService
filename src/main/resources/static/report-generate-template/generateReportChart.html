@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>生成报表图片页面</title>
+    <script src="echarts.common.min.js"></script>
+</head>
+<body>
+    <textarea id="option"></textarea>
+    <a id="generate" href="javascript:void(0);" onclick="init()">生成图片</a>
+    <!-- 为ECharts准备一个具备大小（宽高）的Dom -->
+    <div id="main" style="width:720px;height:240px;"></div>
+
+    <script type="text/javascript">
+
+        // 基于准备好的dom，初始化eCharts实例
+        var picChart = echarts.init(document.getElementById('main'), null, {renderer: 'svg'});
+
+        function init(){
+            // 指定图表的配置项和数据
+            picChart.setOption(JSON.parse(document.getElementById("option").getAttribute("value")));
+        }
+
+    </script>
+</body>
+</html>

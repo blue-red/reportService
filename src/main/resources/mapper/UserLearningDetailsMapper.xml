@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.cwn.wizbank.report.mapper.UserLearningDetailsMapper">
+
+    <select id="getUserLearningStatistics" resultType="java.util.Map">
+      SELECT 
+          usr_ent_id userId,
+          MAX(usr_ste_usr_id) userName,
+          MAX(usr_display_bil) fullName,
+          MAX(usg_display_bil) groupName,
+          MAX(ugr_display_bil) gradeName,
+          COUNT(CASE WHEN cov.cov_status = 'I' THEN cov.cov_status END) AS inProgressAeItemQuantity,
+          COUNT(CASE WHEN cov.cov_status = 'C' THEN cov.cov_status END) AS completedAeItemQuantity,
+          COUNT(CASE WHEN cov.cov_status = 'F' THEN cov.cov_status END) AS unqualifiedAeItemQuantity,
+          COUNT(CASE WHEN cov.cov_status = 'W' THEN cov.cov_status END) AS abandonAeItemQuantity,
+          SUM(CASE WHEN item.itm_run_ind = 0 THEN cov.cov_total_time END) AS learnDuration,
+          SUM(CASE WHEN item.itm_exam_ind = 1 THEN cov.cov_total_time END) AS examLearnDuration,
+          SUM(CASE WHEN item.itm_exam_ind = 0 AND item.itm_run_ind = 0 THEN cov.cov_total_time END) AS onlineLearnDuration,
+          SUM(CASE WHEN item.itm_run_ind = 1 AND item.itm_exam_ind = 0 THEN cov.cov_total_time END) AS offlineLearnDuration,
+          SUM(cov.cov_score) allScore,
+          COUNT(app.app_id) attemptQuantity
+        FROM RegUser reg
+        <include refid="baseSql"/>
+        LEFT JOIN aeItem item ON app.app_itm_id = item.itm_id
+        WHERE  app.app_id IN (
+            SELECT MAX(app_id) FROM aeApplication, aeAttendance
+            WHERE att_app_id = app_id AND app_itm_id = app.app_itm_id GROUP BY app_ent_id
+            )
+        <if test="userIds != null and userIds != ''">
+            AND reg.usr_ent_id IN
+            <foreach collection="userIds" item="userId" open="(" separator="," close=")" index="index">
+                #{userId}
+            </foreach>
+        </if>
+        <if test="aeItemIds != null and aeItemIds != ''">
+            AND item.itm_id IN
+            <foreach collection="aeItemIds" item="aeItemId" open="(" separator="," close=")" index="index">
+                #{aeItemId}
+            </foreach>
+        </if>
+        <if test="startDate != null and startDate != ''">
+            AND app.app_upd_timestamp &gt;= #{startDate}
+        </if>
+        <if test="endDate != null and endDate != ''">
+            AND app.app_upd_timestamp &lt;= #{endDate}
+        </if>
+        GROUP BY usr_ent_id
+    </select>
+
+    <select id="getUserOnlineItemLearningDetails" resultType="java.util.Map">
+        select
+            usr_ent_id,
+            usr_ste_usr_id userName,
+            usr_display_bil fullName,
+            usg_display_bil groupName,
+            ugr_display_bil gradeName,
+            item.itm_code itemCode,
+            item.itm_title itemName,
+            cov.cov_status learnStatus,
+            CASE WHEN item.itm_exam_ind = 0 AND item.itm_run_ind = 0 THEN cov.cov_total_time END AS learnDuration,
+            CASE WHEN item.itm_exam_ind = 1 AND item.itm_run_ind = 0 THEN cov.cov_total_time END AS examLearnDuration,
+            CASE WHEN item.itm_exam_ind = 0 AND item.itm_run_ind = 0 THEN cov.cov_total_time END AS onlineLearnDuration,
+            cov.cov_last_acc_datetime lastAccessTime,
+            cov.cov_commence_datetime firstAccessTime,
+            cov.cov_score itemScore,
+            app.app_upd_timestamp admissionsDate
+        from RegUser reg
+        <include refid="baseSql"/>
+        LEFT JOIN aeItem item ON app.app_itm_id = item.itm_id
+        WHERE
+        itm_content_def is NULL
+        <if test="userIds != null and userIds != ''">
+            AND reg.usr_ent_id IN
+            <foreach collection="userIds" item="userId" open="(" separator="," close=")" index="index">
+                #{userId}
+            </foreach>
+        </if>
+        <if test="aeItemIds != null and aeItemIds != ''">
+            AND item.itm_id IN
+            <foreach collection="aeItemIds" item="aeItemId" open="(" separator="," close=")" index="index">
+                #{aeItemId}
+            </foreach>
+        </if>
+        <if test="startDate != null and startDate != ''">
+            AND app.app_upd_timestamp &gt;= #{startDate}
+        </if>
+        <if test="endDate != null and endDate != ''">
+            AND app.app_upd_timestamp &lt;= #{endDate}
+        </if>
+    </select>
+
+    <select id="getUserOffItemLearningDetails" resultType="java.util.Map">
+        select
+        usr_ent_id,
+        usr_ste_usr_id userName,
+        usr_display_bil fullName,
+        usg_display_bil groupName,
+        ugr_display_bil gradeName,
+        temp.itemCode,
+        temp.itemName,
+        temp.className,
+        temp.classCode,
+        cov.cov_total_time offlineLearnDuration,
+        cov.cov_complete_datetime completeDate,
+        cov.cov_commence_datetime firstAccessTime,
+        cov.cov_last_acc_datetime lastAccessTime,
+        cov.cov_score itemScore,
+        app.app_upd_timestamp admissionsDate
+        from RegUser reg
+        <include refid="baseSql"/>
+        INNER JOIN
+            (
+              select
+                childItem.itm_id as itemId,
+                parentItem.itm_title as itemName,
+                parentItem.itm_code as itemCode,
+                childItem.itm_title as className,
+                childItem.itm_code as classCode
+            from aeItem childItem, aeItemRelation, aeItem parentItem, Course course
+            where
+                childItem.itm_id = course.cos_itm_id AND
+                childItem.itm_id = ire_child_itm_id and
+                ire_parent_itm_id = parentItem.itm_id and
+                childItem.itm_type = 'CLASSROOM'
+                and childItem.itm_owner_ent_id = 1
+                and childItem.itm_id not in
+                (select itm_id from aeItem where itm_create_run_ind = 1 and itm_content_def = 'CHILD')
+                <if test="aeItemIds != null and aeItemIds != ''">
+                    AND ire_parent_itm_id IN
+                    <foreach collection="aeItemIds" item="aeItemId" open="(" separator="," close=")" index="index">
+                        #{aeItemId}
+                    </foreach>
+                </if>
+            ) temp
+        on app.app_itm_id = temp.itemId
+        WHERE
+            1=1
+            <if test="userIds != null and userIds != ''">
+                AND reg.usr_ent_id IN
+                <foreach collection="userIds" item="userId" open="(" separator="," close=")" index="index">
+                    #{userId}
+                </foreach>
+            </if>
+            <if test="startDate != null and startDate != ''">
+                AND app.app_upd_timestamp &gt;= #{startDate}
+            </if>
+            <if test="endDate != null and endDate != ''">
+                AND app.app_upd_timestamp &lt;= #{endDate}
+            </if>
+    </select>
+
+    <sql id="baseSql">
+        LEFT JOIN EntityRelation groupRel ON groupRel.ern_child_ent_id = reg.usr_ent_id AND groupRel.ern_type = 'USR_PARENT_USG' AND groupRel.ern_parent_ind = 1
+        LEFT JOIN UserGroup groupInfo ON groupRel.ern_ancestor_ent_id = groupInfo.usg_ent_id
+
+        LEFT JOIN EntityRelation gradeRel ON gradeRel.ern_child_ent_id = reg.usr_ent_id AND gradeRel.ern_type = 'USR_CURRENT_UGR' AND gradeRel.ern_parent_ind = 1
+        LEFT JOIN UserGrade gradeInfo ON gradeRel.ern_ancestor_ent_id = gradeInfo.ugr_ent_id
+
+        LEFT JOIN UserPositionRelation positionRel ON positionRel.upr_usr_ent_id = reg.usr_ent_id
+        LEFT JOIN UserPosition positionInfo ON positionRel.upr_upt_id = positionInfo.upt_id
+
+        LEFT JOIN aeApplication app ON app.app_ent_id = reg.usr_ent_id AND app.app_status = 'Admitted'
+        LEFT JOIN CourseEvaluation cov ON cov.cov_tkh_id = app.app_tkh_id
+    </sql>
+</mapper>

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.cwn.wizbank.report.mapper.AeApplicationMapper">
+
+    <select id="getLearningQuantityByUserId" resultType="java.lang.Integer">
+        SELECT
+        COUNT(app_ent_id) learnQuantity
+        FROM aeApplication
+        WHERE app_status = 'Admitted' AND app_ent_id = #{userId}
+        AND (
+          app_itm_id IN (
+            select itm_id from aeItem,aeItemRelation where itm_id = ire_parent_itm_id
+            <if test="aeItemIds != null">
+                and itm_id in
+                <foreach collection="aeItemIds" item="itemId" open="(" separator="," close=")" index="index">
+                    #{itemId}
+                </foreach>
+            </if>
+          )
+            <if test="aeItemIds != null">
+              OR
+              app_itm_id IN
+                <foreach collection="aeItemIds" item="itemId" open="(" separator="," close=")" index="index">
+                    #{itemId}
+                </foreach>
+            </if>
+            )
+    </select>
+</mapper>

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.cwn.wizbank.report.mapper.ReportHistoryMapper">
+
+    <select id="getMyHistoryRecord" resultType="java.util.Map">
+      select
+          reh_id hisRoportId,
+          reh_type reportType,
+          reh_create_time createTime,
+          reh_status status
+      from report_history
+      <if test="type != null and type != ''">
+          WHERE reh_type = #{type}
+      </if>
+    </select>
+</mapper>

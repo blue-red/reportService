@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.cwn.wizbank.report.mapper.SuperMapper">
+
+    <select id="getUserInfoByUserId" resultType="java.util.Map">
+       select
+        usr_ent_id userId,
+        usr_ste_usr_id userName,
+        usr_display_bil fullName,
+        usg_display_bil groupName,
+        ugr_display_bil gradeName
+        FROM RegUser reg
+
+        LEFT JOIN EntityRelation groupRel ON groupRel.ern_child_ent_id = reg.usr_ent_id AND groupRel.ern_type = 'USR_PARENT_USG' AND groupRel.ern_parent_ind = 1
+        LEFT JOIN UserGroup groupInfo ON groupRel.ern_ancestor_ent_id = groupInfo.usg_ent_id
+
+        LEFT JOIN EntityRelation gradeRel ON gradeRel.ern_child_ent_id = reg.usr_ent_id AND gradeRel.ern_type = 'USR_CURRENT_UGR' AND gradeRel.ern_parent_ind = 1
+        LEFT JOIN UserGrade gradeInfo ON gradeRel.ern_ancestor_ent_id = gradeInfo.ugr_ent_id
+
+        LEFT JOIN UserPositionRelation positionRel ON positionRel.upr_usr_ent_id = reg.usr_ent_id
+        LEFT JOIN UserPosition positionInfo ON positionRel.upr_upt_id = positionInfo.upt_id
+
+        WHERE reg.usr_ent_id = #{userId}
+    </select>
+</mapper>

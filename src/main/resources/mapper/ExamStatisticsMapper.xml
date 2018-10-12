@@ -1,0 +1,459 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.cwn.wizbank.report.mapper.ExamStatisticsMapper">
+
+    <!--获取考试学习统计信息-->
+    <select id="queryExamLearningStatisticsInfo" resultType="java.util.Map">
+        SELECT
+            --考试id
+            itm_id id,
+            --考试编号
+            itm_code code,
+            --考试名称
+            itm_title name,
+            --考试类型
+            itm_type type,
+            --培训中心id
+            tcr_id trainingCenterId,
+            --培训中心名称
+            tcr_title trainingCenterName,
+            --发布人数
+            CASE WHEN itm_target_enrol_type = 'TARGET_LEARNER' THEN targetLearnerInfo.targetLearnerNum ELSE trainingCenterUserInfo.targetLearnerNum END targetLearnerQuantity,
+            --学习总数
+            COALESCE(SUM(app_info.applyQuantity), 0) applyQuantity,
+            --进行中学员
+            COALESCE(SUM(app_info.inProgressQuantity), 0) inProgressQuantity,
+            --已完成学员
+            COALESCE(SUM(app_info.completeQuantity), 0) completeQuantity,
+            --已放弃学员
+            COALESCE(SUM(app_info.unqualifiedQuantity), 0) unqualifiedQuantity,
+            --不合格学员
+            COALESCE(SUM(app_info.waiveQuantity), 0) waiveQuantity,
+            --考试总时长
+            COALESCE(SUM(app_info.learnDuration), 0) learnDuration,
+            --尝试总次数
+            COALESCE(SUM(app_info.attemptQuantity), 0) attemptQuantity,
+            --总成绩
+            COALESCE(SUM(app_info.score), 0) score
+        FROM
+            --课程表
+            aeItem
+            --培训中心表
+            INNER JOIN tctrainingcenter tcr ON itm_tcr_id = tcr.tcr_id AND itm_exam_ind = 1 AND itm_run_ind != 1
+            --课程与班级关系表（查出离线考试关联的考试场次，用于统计离线考试的统计数据）
+            LEFT JOIN aeItemRelation ON ire_parent_itm_id = itm_id
+            --单个课程的相关数据统计
+            LEFT JOIN (
+                SELECT
+                    app_itm_id,
+                    --进行中
+                    SUM(CASE WHEN cov_status='I' THEN 1 ELSE 0 END) inProgressQuantity,
+                    --已完成
+                    SUM(CASE WHEN cov_status='C' THEN 1 ELSE 0 END) completeQuantity,
+                    --不合格
+                    SUM(CASE WHEN cov_status='F' THEN 1 ELSE 0 END) unqualifiedQuantity,
+                    --已放弃
+                    SUM(CASE WHEN cov_status='W' THEN 1 ELSE 0 END) waiveQuantity,
+                    --单个状态的学习总数（报名数）
+                    COUNT(app_id) applyQuantity,
+                    --考试总时长
+                    SUM(cov_total_time) learnDuration,
+                    --考试总分
+                    SUM(COALESCE(cov_score, 0)) score,
+                    --学习模块的总尝试次数
+                    SUM(attemptQuantity) attemptQuantity
+                FROM
+                    --报名记录表
+                    aeApplication
+                    --每条报名记录的学习结果记录表
+                    INNER JOIN CourseEvaluation ON app_status = 'Admitted' AND app_tkh_id = cov_tkh_id
+                    <if test="deleteUser == null or deleteUser != true">
+                        --关联用户表，排除状态
+                        INNER JOIN RegUser ON app_ent_id = usr_ent_id and usr_status != 'DELETE'
+                    </if>
+                    --学习模块的总次数
+                    Left JOIN (
+                        SELECT
+                            --报名id
+                            mov_tkh_id mov_tkh_id,
+                            --每条报名的总尝试次数
+                            SUM(ISNULL(mov_total_attempt, 0)) attemptQuantity
+                        FROM
+                            --模块学习跟踪情况
+                            ModuleEvaluation
+                            --课程学习模块记录
+                            INNER JOIN Module ON mod_res_id = mov_mod_id
+                            --resources跟aeItem表的关系
+                            INNER JOIN Course ON cos_res_id = mov_cos_id
+                            <if test="deleteUser == null or deleteUser != true">
+                                --关联用户表，排除状态
+                                INNER JOIN RegUser ON mov_ent_id = usr_ent_id and usr_status != 'DELETE'
+                            </if>
+                        GROUP BY mov_tkh_id
+                    ) attempt_info ON mov_tkh_id = app_tkh_id
+                WHERE
+                    1 = 1
+                    --学习状态
+                    <if test="learnStatus != null" >
+                        AND cov_status IN
+                            <foreach collection="learnStatus" item="status" open="(" separator="," close=")" index="index">
+                                #{status}
+                            </foreach>
+                    </if>
+                    --报名开始时间
+                    <if test="startDate != null">
+                        AND app_create_timestamp &gt;= #{startDate}
+                    </if>
+                    --报名结束时间
+                    <if test="endDate != null">
+                        AND app_create_timestamp &lt;= #{endDate}
+                    </if>
+                    --查询的用户id
+                    <if test="userIds != null">
+                        AND app_ent_id IN
+                            <foreach collection="userIds" item="userId" open="(" separator="," close=")" index="index">
+                                #{userId}
+                            </foreach>
+                    </if>
+                    --查询的考试id
+                    <if test="aeItemIds != null">
+                        AND (
+                            app_itm_id IN <include refid="forEachItemIds" />
+                            OR
+                            --离线课程
+                            app_itm_id IN (
+                                SELECT
+                                    ire_child_itm_id itm_id
+                                FROM
+                                    aeitem
+                                    INNER JOIN aeItemRelation ON ire_parent_itm_id = itm_id
+                                WHERE
+                                    itm_id IN <include refid="forEachItemIds" />
+                            )
+                        )
+                    </if>
+                GROUP BY app_itm_id
+            ) app_info
+            --报名课程id等于课程id不包括班级的统计信息，所以关联aeItemRelation表将班级的学习统计信息也关联起来，然后再统计一次就得到离线考试的学习统计信息
+            ON (app_itm_id = itm_id OR ire_child_itm_id = app_itm_id)
+            --目标学员个数
+            LEFT JOIN (
+                SELECT
+                    itd_itm_id,
+                    count(itd_itm_id) targetLearnerNum
+                FROM
+                    itemTargetLrnDetail
+                GROUP BY itd_itm_id
+            ) targetLearnerInfo ON itd_itm_id = itm_id
+            --课程关联培训中心下的学员个数
+            LEFT JOIN (
+                SELECT
+                    tce_tcr_id,
+                    COUNT(ruser.usr_ent_id) targetLearnerNum
+                FROM (
+                     --获取所有的培训中心分别可管理的用户组
+                     SELECT
+                       tcusg.tce_ent_id,tcusg.tce_tcr_id
+                     FROM
+                       tctrainingcentertargetentity tcusg
+                     UNION
+                     SELECT
+                       usgusger.ern_child_ent_id tce_ent_id,usgusg.tce_tcr_id
+                     FROM
+                       tctrainingcentertargetentity usgusg
+                       INNER JOIN entityrelation usgusger ON usgusger.ern_type = 'USG_PARENT_USG' AND usgusg.tce_ent_id = usgusger.ern_ancestor_ent_id
+                   ) usermanagerusg
+                    --用户组可管理的用户
+                    INNER JOIN entityrelation usermanagerusr ON usermanagerusr.ern_type = 'USR_PARENT_USG' AND usermanagerusr.ern_parent_ind = 1 AND usermanagerusr.ern_ancestor_ent_id = usermanagerusg.tce_ent_id
+                    INNER JOIN reguser ruser ON ruser.usr_ent_id = usermanagerusr.ern_child_ent_id
+                    <choose>
+                        <when test="deleteUser == null or deleteUser != true">
+                            AND ruser.usr_status = 'OK'
+                        </when>
+                        <otherwise>
+                            AND ruser.usr_status IN ('OK','DELETE')
+                        </otherwise>
+                    </choose>
+                GROUP BY tce_tcr_id
+            ) trainingCenterUserInfo ON itm_tcr_id = tce_tcr_id
+        WHERE
+          1 = 1
+          <if test="aeItemIds != null">
+              AND itm_id IN <include refid="forEachItemIds" />
+          </if>
+        GROUP BY
+            itm_id,
+            itm_code,
+            itm_title,
+            itm_type,
+            tcr_id,
+            tcr_title,
+            CASE WHEN itm_target_enrol_type = 'TARGET_LEARNER' THEN targetLearnerInfo.targetLearnerNum ELSE trainingCenterUserInfo.targetLearnerNum END
+    </select>
+
+    <!--遍历课程/考试id-->
+    <sql id="forEachItemIds">
+        <foreach collection="aeItemIds" index="index" open="(" separator="," close=")" item="itmId">
+            #{itmId}
+        </foreach>
+    </sql>
+
+    <!--根据课程ID获取目录信息-->
+    <select id="queryCatalogByItmId" parameterType="java.lang.Long" resultType="java.util.Map">
+        SELECT
+            atn.tnd_id id,
+            atn.tnd_parent_tnd_id parentId,
+            atn.tnd_title name
+        FROM
+            aetreenode tn
+            INNER JOIN aeTreeNode atn ON tn.tnd_parent_tnd_id = atn.tnd_id
+        WHERE
+            tn.tnd_itm_id = #{itmId}
+    </select>
+
+    <!--获取全部课程目录-->
+    <select id="queryCatalog" resultType="java.util.Map">
+        SELECT
+            tnd_id id,
+            tnd_parent_tnd_id parentId,
+            tnd_title name
+        FROM
+            aetreenode
+        WHERE
+            tnd_type != 'ITEM'
+    </select>
+
+    <!--考试测试完成统计报表-->
+    <select id="queryExamCompletionStatisticsInfo" resultType="java.util.Map">
+        SELECT
+            --模块id
+            mod_res_id id,
+            --测验名称
+            res_title name,
+            --考试编号
+            itm_code itemCode,
+            --考试名称
+            itm_title itemName,
+            --班级编号
+            child_itm_code childItemCode,
+            --班级名称
+            child_itm_title childItemName,
+            --测试类型
+            mod_type type,
+            --测验总分
+            COALESCE(MAX(maxScore), 0) maxScore,
+            --合格分数
+            COALESCE(MAX(passScore), 0) passScore,
+            --参与人数(一人算一次)
+            COUNT(mov_ent_id) involvementQuantity,
+            --合格人数(得到的分数大于等于合格分数)
+            COALESCE(SUM(CASE WHEN learnerMaxScore >= passScore THEN 1 ELSE 0 END), 0) passQuantity,
+            --学员得到最高分数总和
+            COALESCE(SUM(learnerMaxScore), 0) totalLearnerScore,
+            --本门考试的最高分
+            COALESCE(MAX(learnerMaxScore), 0) learnerMaxScore,
+            --本门考试的最低分
+            COALESCE(MIN(learnerMinScore), 0) learnerMinScore
+        FROM (
+            --排除多次报名情况，筛选一个学员只有一条记录（多次报名，多次考试都只有一条记录）
+            SELECT
+                --模块id
+                mod_res_id,
+                --用户id
+                mov_ent_id,
+                --模块名称
+                res_title,
+                --模块类型
+                mod_type,
+                --课程编码
+                CASE WHEN item.itm_run_ind = 1 THEN parentItem.itm_code ELSE item.itm_code END itm_code,
+                --课程名称
+                CASE WHEN item.itm_run_ind = 1 THEN parentItem.itm_title ELSE item.itm_title END itm_title,
+                --班级code
+                CASE WHEN item.itm_run_ind = 1 THEN item.itm_code ELSE '--' END child_itm_code,
+                --班级名称
+                CASE WHEN item.itm_run_ind = 1 THEN item.itm_title ELSE '--' END child_itm_title,
+                --测验总分
+                COALESCE(MAX(mod_max_score),0) maxScore,
+                --合格分数
+                COALESCE(MAX(mod_pass_score), 0) passScore,
+                --本门考试的最高分
+                COALESCE(MAX(learnerMaxScore), 0) learnerMaxScore,
+                --本门考试的最低分
+                COALESCE(MIN(learnerMinScore), 0) learnerMinScore
+            FROM
+                --模块信息表
+                Module
+                --资源表
+                INNER JOIN Resources ON mod_res_id = res_id
+                --模块resId与课程resId的关系表（课程与模块的关系）
+                INNER JOIN ResourceContent ON mod_res_id = rcn_res_id_content
+                --课程resId与itmId的关系（课程与资源表的关系）
+                INNER JOIN Course ON cos_res_id = rcn_res_id
+                --课程信息表
+                INNER JOIN aeItem item ON cos_itm_id = item.itm_id and itm_exam_ind = 1
+                --课程与班级的关系
+                LEFT JOIN aeItemRelation ON ire_child_itm_id = item.itm_id
+                --关联课程
+                LEFT JOIN aeItem parentItem ON parentItem.itm_id = ire_parent_itm_id
+                --模块学习结果记录表
+                LEFT JOIN ModuleEvaluation ON mod_res_id = mov_mod_id
+                --用户表
+                LEFT JOIN RegUser ON mov_ent_id = usr_ent_id
+                --用户状态，是否包含已删除学员
+                <choose>
+                    <when test="deleteUser == null or deleteUser != true">
+                        AND usr_status = 'OK'
+                    </when>
+                    <otherwise>
+                        AND usr_status IN ('OK','DELETE')
+                    </otherwise>
+                </choose>
+                --查询的用户id
+                <if test="userIds != null">
+                    AND usr_ent_id IN
+                    <foreach collection="userIds" item="userId" open="(" separator="," close=")" index="index">
+                        #{userId}
+                    </foreach>
+                </if>
+                --每个学员报名一次考试的最高分、最低分（筛选一次报名考试多次）
+                LEFT JOIN (
+                    SELECT
+                        pgr_res_id,
+                        pgr_usr_id,
+                        pgr_tkh_id,
+                        --单个学员多次考试的最高分
+                        MAX(pgr_score) learnerMaxScore,
+                        --单个学员多次考试的最低分
+                        MIN(pgr_score) learnerMinScore
+                    FROM
+                        Progress
+                        where 1 = 1
+                        --开始时间
+                        <if test="startDate != null">
+                            AND pgr_start_datetime &gt;= #{startDate}
+                        </if>
+                        --结束时间
+                        <if test="endDate != null">
+                            AND pgr_start_datetime &lt;= #{endDate}
+                        </if>
+                    GROUP BY
+                      pgr_res_id,
+                      pgr_usr_id,
+                      pgr_tkh_id
+                ) learnerTestInfo ON mov_mod_id = pgr_res_id AND pgr_tkh_id = mov_tkh_id
+            WHERE
+                --静态测试|动态测试
+                (mod_type = 'TST' OR mod_type = 'DXT')
+                --查询的考试id
+                <if test="aeItemIds != null">
+                    AND (
+                        item.itm_id IN <include refid="forEachItemIds" />
+                        OR
+                        --离线课程
+                        item.itm_id IN (
+                            SELECT
+                                ire_child_itm_id itm_id
+                            FROM
+                                aeItem
+                                INNER JOIN aeItemRelation ON ire_parent_itm_id = itm_id
+                            WHERE
+                                itm_id IN <include refid="forEachItemIds" />
+                        )
+                    )
+                </if>
+            GROUP BY
+                mod_res_id,
+                mov_ent_id,
+                res_title,
+                mod_type,
+                CASE WHEN item.itm_run_ind = 1 THEN parentItem.itm_code ELSE item.itm_code END,
+                CASE WHEN item.itm_run_ind = 1 THEN parentItem.itm_title ELSE item.itm_title END,
+                CASE WHEN item.itm_run_ind = 1 THEN item.itm_code ELSE '--' END,
+                CASE WHEN item.itm_run_ind = 1 THEN item.itm_title ELSE '--' END
+        ) tstEvaluation
+        GROUP BY
+            mod_res_id,
+            res_title,
+            itm_code,
+            itm_title,
+            child_itm_code,
+            child_itm_title,
+            mod_type
+    </select>
+
+    <!--查询成绩级别统计-->
+    <select id="queryAchievementsLevelStatisticsInfo" resultType="java.util.Map">
+        select
+            count(mod_res_id) involvementQuantity,
+            --优秀
+            sum(case when pgr_score/mod_max_score*100 &gt;= 90 then 1 else 0 end) excellentQuantity,
+            --良好
+            sum(case when pgr_score/mod_max_score*100 &lt; 90 and pgr_score/mod_max_score*100 &gt;= 80 then 1 else 0 end) goodQuantity,
+            --一般
+            sum(case when pgr_score/mod_max_score*100 &lt; 80 and pgr_score/mod_max_score*100 &gt;= 70 then 1 else 0 end) ordinaryQuantity,
+            --合格
+            sum(case when pgr_score/mod_max_score*100 &lt; 70 and pgr_score/mod_max_score*100 &gt;= 60 then 1 else 0 end) qualifiedQuantity,
+            --不合格
+            sum(case when pgr_score/mod_max_score*100 &lt; 60 and pgr_score/mod_max_score*100 &gt;= 0 then 1 else 0 end) unqualifiedQuantity
+        from
+            --模块信息表
+            Module
+            --模块resId与课程resId的关系表（课程与模块的关系）
+            inner join ResourceContent on mod_res_id = rcn_res_id_content
+            --课程resId与itmId的关系（课程与资源表的关系）
+            inner join Course on cos_res_id = rcn_res_id
+            --课程信息表
+            inner join aeItem on cos_itm_id = itm_id --and itm_exam_ind = 1
+            --模块学习结果记录表(多次报名就有多条ModuleEvaluation)
+            inner join ModuleEvaluation on mod_res_id = mov_mod_id
+            --用户表
+            inner JOIN RegUser ON mov_ent_id = usr_ent_id
+            --学员每次考试结果记录表（一次报名可考试多次，多次考试会有多条记录）
+            inner join Progress on mov_mod_id = pgr_res_id and pgr_tkh_id = mov_tkh_id
+        where
+            (mod_type = 'TST' OR mod_type = 'DXT')
+            --查询的考试id
+            <if test="aeItemIds != null">
+                AND (
+                    itm_id IN <include refid="forEachItemIds" />
+                    OR
+                    --离线课程
+                    itm_id IN (
+                        SELECT
+                            ire_child_itm_id itm_id
+                        FROM
+                            aeItem
+                            INNER JOIN aeItemRelation ON ire_parent_itm_id = itm_id
+                        WHERE
+                            itm_id IN <include refid="forEachItemIds" />
+                    )
+                )
+            </if>
+            --开始时间
+            <if test="startDate != null">
+                AND pgr_start_datetime &gt;= #{startDate}
+            </if>
+            --结束时间
+            <if test="endDate != null">
+                AND pgr_start_datetime &lt;= #{endDate}
+            </if>
+            --用户状态，是否包含已删除学员
+            <choose>
+                <when test="deleteUser == null or deleteUser != true">
+                    AND usr_status = 'OK'
+                </when>
+                <otherwise>
+                    AND usr_status IN ('OK','DELETE')
+                </otherwise>
+            </choose>
+            --查询的用户id
+            <if test="userIds != null">
+                AND usr_ent_id IN
+                <foreach collection="userIds" item="userId" open="(" separator="," close=")" index="index">
+                    #{userId}
+                </foreach>
+            </if>
+    </select>
+
+</mapper>

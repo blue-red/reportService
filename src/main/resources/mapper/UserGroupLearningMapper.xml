@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.cwn.wizbank.report.mapper.UserGroupLearningMapper">
+
+    <select id="getGroupInfoById" resultType="java.util.Map">
+        SELECT
+        COUNT(usg_ent_id) groupUserQuantity,
+        usg_ent_id userGroupId,
+        usg_display_bil groupName,
+        usg_code groupCode
+        FROM UserGroup
+        LEFT JOIN EntityRelation ON usg_ent_id = ern_ancestor_ent_id
+        WHERE ern_child_ent_id IS NOT NULL AND usg_ent_id = #{groupId}
+        GROUP BY usg_ent_id,usg_display_bil,usg_code
+    </select>
+
+    <select id="getOnlineItemLearningSituation" resultType="java.util.Map" parameterType="java.util.Map">
+        SELECT
+        COUNT(app.app_ent_id) learnQuantity,
+        SUM(cov.cov_total_time) learnDuration,
+        SUM(cov.cov_total_time) onlineLearnDuration,
+        <include refid="baseSql"/>
+    </select>
+
+    <select id="getOfflineItemLearningSituation" resultType="java.util.Map" parameterType="java.util.Map">
+        SELECT
+        COUNT(app.app_ent_id) learnQuantity,
+        SUM(cov.cov_total_time) learnDuration,
+        SUM(cov.cov_total_time) offlineLearnDuration,
+        <include refid="baseSql"/>
+    </select>
+
+    <select id="getExamLearningSituation" resultType="java.util.Map">
+        SELECT
+        COUNT(app.app_ent_id) learnQuantity,
+        SUM(cov.cov_total_time) examLearnDuration,
+        <include refid="baseSql"/>
+    </select>
+
+    <select id="getLearningQuantityByGroupIdAndItemId" resultType="java.lang.Integer">
+        SELECT
+        COUNT(app_ent_id) learnQuantity
+        FROM UserGroup
+        LEFT JOIN EntityRelation ON usg_ent_id = ern_ancestor_ent_id
+        LEFT JOIN aeApplication ON app_ent_id = ern_child_ent_id
+        WHERE app_status = 'Admitted'
+        <if test="groupIds != null">
+            AND usg_ent_id IN
+                <foreach collection="groupIds" item="groupId" open="(" separator="," close=")" index="index">
+                    #{groupId}
+                </foreach>
+        </if>
+            AND (
+                app_itm_id IN (
+                SELECT itm_id
+                FROM aeItem
+                LEFT JOIN Course ON itm_id = cos_itm_id
+                LEFT JOIN ResourceContent ON rcn_res_id = cos_res_id
+                WHERE itm_type = 'CLASSROOM' AND itm_exam_ind = 0
+                AND itm_run_ind = 1
+                )
+                <if test="aeItemIds != null">
+                    OR
+                    app_itm_id IN
+                    <foreach collection="aeItemIds" item="itmId" open="(" separator="," close=")" index="index">
+                        #{itmId}
+                    </foreach>
+                </if>
+            )
+    </select>
+
+
+    <sql id="baseSql">
+        COUNT(CASE WHEN cov.cov_status = 'I' THEN cov_status END) AS inProgressAeItemQuantity,
+        COUNT(CASE WHEN cov.cov_status = 'C' THEN cov_status END) AS completedAeItemQuantity,
+        COUNT(CASE WHEN cov.cov_status = 'F' THEN cov_status END) AS unqualifiedAeItemQuantity,
+        COUNT(CASE WHEN cov.cov_status = 'W' THEN cov_status END) AS abandonAeItemQuantity
+        FROM UserGroup groupInfo
+        LEFT JOIN EntityRelation groupRel ON groupInfo.usg_ent_id = groupRel.ern_ancestor_ent_id and groupRel.ern_type = 'USR_PARENT_USG' and groupRel.ern_parent_ind = 1
+        INNER JOIN aeApplication app ON app.app_ent_id = groupRel.ern_child_ent_id
+        LEFT JOIN aeItem aeItem ON aeItem.itm_id = app.app_itm_id
+        LEFT JOIN CourseEvaluation cov ON cov.cov_tkh_id = app.app_tkh_id
+        WHERE groupInfo.usg_ent_id = #{groupId} AND aeItem.itm_run_ind = #{isClass}
+        <if test="isExam != null and isExam != ''">
+            AND aeItem.itm_exam_ind = #{isExam}
+        </if>
+        AND aeItem.itm_type != 'INTEGRATED'
+        AND app.app_id IN (
+        SELECT MAX(app_id) FROM aeApplication, aeAttendance
+        WHERE att_app_id = app_id AND app_itm_id = app.app_itm_id GROUP BY app_ent_id
+        )
+        AND app.app_status = 'Admitted'
+        <if test="startDate != null">
+            AND app_create_timestamp &gt;= #{startDate}
+        </if>
+        <if test="endDate != null">
+            AND app_create_timestamp &lt;= #{endDate}
+        </if>
+        GROUP BY groupInfo.usg_ent_id
+    </sql>
+</mapper>

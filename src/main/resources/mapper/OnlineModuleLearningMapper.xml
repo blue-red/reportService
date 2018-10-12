@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd" >
+<mapper namespace="com.cwn.wizbank.report.mapper.OnlineModuleLearningMapper">
+
+    <select id="getOnlineModuleSituationByUser" resultType="java.util.Map">
+        SELECT
+            usr_ste_usr_id userName,usr_display_bil fullName,usg_display_bil groupName,ugr_display_bil gradeName,
+            res.res_title moduleName,
+            mod.mod_type moduleType,
+            mov.mov_status moduleStatus,
+            mov.mov_total_time learnDuration,
+            CASE WHEN mov.mov_score &lt;= 0 THEN mov.mov_score END level,
+            CASE WHEN mov.mov_score &gt;= 0 THEN mov.mov_score END moduleScore,
+            pgr.pgr_complete_datetime completeDate,
+            pgr.pgr_start_datetime moduleStartDate,
+            temp.childTitle,
+            temp.childCode,
+            temp.parentTitle,
+            temp.parentTitle
+            FROM module mod
+            LEFT JOIN Resources res ON mod.mod_res_id = res.res_id
+            LEFT join ModuleEvaluation mov ON mod.mod_res_id = mov.mov_mod_id
+            LEFT JOIN aeApplication app ON app.app_tkh_id = mov.mov_tkh_id AND app.app_status = 'Admitted'
+            LEFT JOIN Progress pgr ON app.app_tkh_id = pgr.pgr_tkh_id
+
+            INNER JOIN RegUser reg ON reg.usr_ent_id = app.app_ent_id
+            LEFT JOIN EntityRelation groupRel ON groupRel.ern_child_ent_id = reg.usr_ent_id AND groupRel.ern_type = 'USR_PARENT_USG' AND groupRel.ern_parent_ind = 1
+            LEFT JOIN UserGroup groupInfo ON groupRel.ern_ancestor_ent_id = groupInfo.usg_ent_id
+
+            LEFT JOIN EntityRelation gradeRel ON gradeRel.ern_child_ent_id = reg.usr_ent_id AND gradeRel.ern_type = 'USR_CURRENT_UGR' AND gradeRel.ern_parent_ind = 1
+            LEFT JOIN UserGrade gradeInfo ON gradeRel.ern_ancestor_ent_id = gradeInfo.ugr_ent_id
+
+            LEFT JOIN UserPositionRelation positionRel ON positionRel.upr_usr_ent_id = reg.usr_ent_id
+            LEFT JOIN UserPosition positionInfo ON positionRel.upr_upt_id = positionInfo.upt_id
+            LEFT JOIN (
+            SELECT
+                childItem.itm_id itemId,
+                parentItem.itm_title parentTitle,
+                parentItem.itm_code parentCode,
+                childItem.itm_title childTitle,
+                childItem.itm_code childCode,
+                course.cos_res_id  resId
+            FROM aeItem childItem, aeItemRelation, aeItem parentItem, Course course
+            WHERE
+              childItem.itm_id = course.cos_itm_id AND
+              childItem.itm_id = ire_child_itm_id AND
+              ire_parent_itm_id = parentItem.itm_id AND
+              childItem.itm_type IN ('CLASSROOM','SELFSTUDY')
+              AND childItem.itm_owner_ent_id = 1
+              AND childItem.itm_id NOT IN
+                (SELECT itm_id FROM aeItem WHERE itm_create_run_ind = 1 AND itm_content_def = 'CHILD')
+            UNION
+            SELECT
+              itm_id itmId,
+              NULL parentTitle,
+              NULL parentCode,
+              itm_title childTitle,
+              itm_code childCode,
+              cos_res_id resId
+            FROM aeItem,course WHERE
+            cos_itm_id = itm_id AND
+            itm_id NOT IN
+              (SELECT ire_child_itm_id FROM aeItemRelation)
+            AND itm_type IN ('CLASSROOM','SELFSTUDY')
+            AND itm_owner_ent_id = 1 AND
+            itm_id NOT IN
+              (SELECT itm_id FROM aeItem WHERE itm_create_run_ind = 1 AND itm_content_def = 'CHILD')
+            ) temp ON temp.resId = mov.mov_cos_id
+            WHERE
+            mod.mod_res_id IN
+            <foreach collection="moduleIds" item="moduleId" open="(" separator="," close=")" index="index">
+                #{moduleId}
+            </foreach>
+            <if test="userIds != null and userIds != ''">
+                AND reg.usr_ent_id IN
+                <foreach collection="userIds" item="userId" open="(" separator="," close=")" index="index">
+                    #{userId}
+                </foreach>
+            </if>
+            <if test="startDate != null and startDate != ''">
+                AND mov.mov_create_timestamp &gt;= #{startDate}
+            </if>
+            <if test="endDate != null and endDate != ''">
+                AND mov.mov_create_timestamp &lt;= #{endDate}
+            </if>
+    </select>
+</mapper>
